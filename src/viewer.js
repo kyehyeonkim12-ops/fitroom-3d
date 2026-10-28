@@ -49,6 +49,10 @@ export class Viewer {
     scene.add(this.floorDisc);
 
     this.bodyMaterial = new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0.0 });
+    this.clothMaterial = new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, color: 0x3d4a63 });
+    this.fitMaterial = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide, vertexColors: true });
+    this.fitMap = false;
+    this.garment = null;
     this.guideMaterial = new THREE.LineBasicMaterial({ depthTest: false, transparent: true, opacity: 0.95 });
     this.rulerMaterial = new THREE.LineBasicMaterial();
 
@@ -131,6 +135,36 @@ export class Viewer {
     const a = THREE.MathUtils.degToRad(deg);
     const to = new THREE.Vector3(Math.sin(a) * r, offset.y * 0.25, Math.cos(a) * r).add(target);
     this.tween = { fromPos: this.camera.position.clone(), toPos: to, fromT: this.controls.target.clone(), toT: target, t0: performance.now(), dur: 650 };
+  }
+
+  // 옷 메시 교체. group 안 메시에 재질을 입힌다.
+  setGarment(group) {
+    if (this.garment) {
+      this.scene.remove(this.garment);
+      disposeGroup(this.garment);
+    }
+    this.garment = group;
+    if (!group) return;
+    group.traverse((o) => {
+      if (!o.isMesh) return;
+      o.material = this.fitMap ? this.fitMaterial : this.clothMaterial;
+      o.castShadow = true;
+    });
+    group.visible = !this.garmentHidden;
+    this.scene.add(group);
+  }
+
+  setCloth({ color, texture }) {
+    const m = this.clothMaterial;
+    if (m.map && m.map !== texture) m.map.dispose();
+    m.map = texture || null;
+    m.color.set(texture ? '#ffffff' : color);
+    m.needsUpdate = true;
+  }
+
+  setFitMap(on) {
+    this.fitMap = on;
+    this.garment?.traverse((o) => { if (o.isMesh) o.material = on ? this.fitMaterial : this.clothMaterial; });
   }
 
   setGuides(on) {

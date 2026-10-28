@@ -10,7 +10,7 @@ export const RING_N = 64;
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 
-function catmull(p0, p1, p2, p3, t) {
+export function catmull(p0, p1, p2, p3, t) {
   const t2 = t * t, t3 = t2 * t;
   return 0.5 * (2 * p1 + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
 }
@@ -342,7 +342,7 @@ export function buildBody(values, gender, material) {
   // 2단계(옷 입히기)에서 쓸 단면 정보
   const profile = {
     H, yShoulder, yNeckBase, yChin, yCrotch, yHip, yWaist, yChest, yKnee, yAnkle,
-    torsoRings, legs, arms, hipW, chestW, shoulderW: shW,
+    torsoRings, legs, arms, hipW, chestW, shoulderW: shW, values: v, uaR,
   };
 
   return { group, guides, profile };

@@ -29,6 +29,7 @@
   --chalk: #2c67a8;         /* 재단 초크 파랑 */
   --warn: #b0432c;
   --mannequin: #cdbdae;
+  --fit-tight: #e5533a; --fit-tight-ink: #a5301c; --fit-snug: #f3a25a; --fit-regular: #b9bfae; --fit-loose: #8cbde9; --fit-very: #2c64c9; --fit-very-ink: #2554a8;
   --floor: #dde2e8;
   --font-display: "Do Hyeon", "IBM Plex Sans KR", system-ui, sans-serif;
   --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
@@ -38,16 +39,17 @@
   :root:not([data-theme="light"]) {
     --bg: #13161a; --surface: #1b1f24; --ink: #e7eaee; --muted: #97a1ac; --line: #2c3239;
     --accent: #e8b23a; --accent-ink: #1e1602; --chalk: #7eb0ea; --warn: #ee7d64;
-    --mannequin: #b6a796; --floor: #20252b; color-scheme: dark;
+    --mannequin: #b6a796; --floor: #20252b; --fit-tight-ink: #f38a72; --fit-very-ink: #8db5f2; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #13161a; --surface: #1b1f24; --ink: #e7eaee; --muted: #97a1ac; --line: #2c3239;
   --accent: #e8b23a; --accent-ink: #1e1602; --chalk: #7eb0ea; --warn: #ee7d64;
-  --mannequin: #b6a796; --floor: #20252b; color-scheme: dark;
+  --mannequin: #b6a796; --floor: #20252b; --fit-tight-ink: #f38a72; --fit-very-ink: #8db5f2; color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   margin: 0; background: var(--bg); color: var(--ink);
@@ -155,11 +157,60 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   max-width: calc(100% - 32px); background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 20;
 }
 
+
+/* 패널 탭 */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-top: -4px; }
+.tabs button { flex: 1; border: 0; background: none; color: var(--muted); font: 600 14px var(--font-body); padding: 8px 4px 10px; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+.tab-pane { display: flex; flex-direction: column; gap: 16px; }
+.tab-pane > * { flex-shrink: 0; }
+.steps li.done { color: var(--ink); }
+
+/* 판정 결과 */
+.opt { color: var(--muted); font-weight: 400; font-size: 11px; }
+.verdict { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--bg); }
+.verdict-line { margin: 0; font-weight: 600; font-size: 15px; line-height: 1.45; text-wrap: pretty; }
+.verdict-sub { margin: 0; font-size: 13px; color: var(--muted); }
+.fit-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.fit-rows li { display: grid; grid-template-columns: 56px auto 1fr; gap: 4px 10px; align-items: baseline; padding: 8px 0; border-top: 1px dashed var(--line); }
+.fit-rows .part { font-weight: 600; }
+.fit-rows .detail { grid-column: 1 / -1; font-size: 12px; color: var(--muted); margin: 0; }
+.fit-rows .pos .num { font-family: var(--font-body); font-size: 13px; color: var(--ink); }
+.fit-rows .num { font: 500 13px var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 1px 8px 1px 6px; border-radius: 999px; border: 1px solid var(--line); white-space: nowrap; }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.chip[data-s="tight"] { --c: var(--fit-tight); color: var(--fit-tight-ink); border-color: color-mix(in srgb, var(--fit-tight) 50%, transparent); }
+.chip[data-s="snug"] { --c: var(--fit-snug); }
+.chip[data-s="regular"] { --c: var(--fit-regular); }
+.chip[data-s="loose"] { --c: var(--fit-loose); }
+.chip[data-s="veryLoose"] { --c: var(--fit-very); color: var(--fit-very-ink); border-color: color-mix(in srgb, var(--fit-very) 50%, transparent); }
+
+/* 사진 */
+.drop { display: grid; place-items: center; min-height: 140px; border: 1.5px dashed var(--line); border-radius: 10px; background: var(--bg); cursor: pointer; text-align: center; color: var(--muted); padding: 10px; }
+.drop.over { border-color: var(--accent); }
+.drop canvas { width: 100%; max-width: 320px; height: auto; cursor: crosshair; touch-action: manipulation; }
+.drop small { font-size: 12px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+#photo-input:focus-visible + .photo-tools, .drop:focus-within { outline: 2px solid var(--accent); }
+.photo-tools { display: flex; flex-direction: column; gap: 10px; align-items: flex-start; }
+.photo-tools .field { width: 100%; }
+.swatch-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.swatch { width: 22px; height: 22px; border-radius: 6px; border: 1px solid var(--line); }
+.swatch-row .lbl { font: 500 12px var(--font-mono); color: var(--muted); margin-right: auto; }
+
+/* 범례 */
+.legend { position: absolute; top: 10px; right: max(12px, env(safe-area-inset-right, 0px)); background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; font-size: 12px; }
+.legend-title { font-weight: 600; display: block; margin-bottom: 4px; }
+.legend ol { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.legend li { display: flex; align-items: center; gap: 6px; }
+.legend i { width: 18px; height: 10px; border-radius: 3px; display: inline-block; }
+
 @media (max-width: 860px) {
   .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 50% minmax(0, 1fr); }
   .panel { border-left: 0; border-top: 1px solid var(--line); }
   .steps { display: none; }
   .stage-hint { display: none; }
+  .legend { top: 8px; padding: 6px 8px; }
 }
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
 </style>
@@ -169,8 +220,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   <header class="topbar">
     <h1 class="brand">핏룸 <em>3D</em></h1>
     <ol class="steps" aria-label="진행 단계">
-      <li aria-current="step">1 내 몸 모델</li>
-      <li>2 옷 입히기</li>
+      <li class="done">1 내 몸 모델</li>
+      <li aria-current="step">2 옷 입히기</li>
       <li>3 AI 착용·옷장</li>
     </ol>
   </header>
@@ -179,48 +230,128 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     <div id="stage"></div>
     <div id="labels"></div>
     <p class="stage-hint">드래그로 회전 · 휠/핀치로 확대 · 두 손가락이나 우클릭으로 이동</p>
+    <div class="legend" id="legend" hidden>
+      <span class="legend-title">핏 지도</span>
+      <ol id="legend-list"></ol>
+    </div>
     <div class="stage-tools">
       <div class="seg" role="group" aria-label="보기 방향">
         <button type="button" data-view="0">정면</button>
         <button type="button" data-view="90">측면</button>
         <button type="button" data-view="180">후면</button>
       </div>
-      <div class="seg">
+      <div class="seg" role="group" aria-label="표시">
         <button type="button" id="btn-guides" aria-pressed="true">치수선</button>
+        <button type="button" id="btn-cloth" aria-pressed="true">옷</button>
+        <button type="button" id="btn-fitmap" aria-pressed="false">핏 지도</button>
       </div>
     </div>
   </main>
 
-  <aside class="panel" aria-label="내 치수">
-    <div>
-      <h2>내 치수</h2>
-      <p class="save-state" id="save-state" aria-live="polite"></p>
+  <aside class="panel" aria-label="치수와 옷">
+    <div class="tabs" role="tablist" aria-label="패널">
+      <button type="button" role="tab" id="tab-btn-body" aria-controls="tab-body" aria-selected="true">내 치수</button>
+      <button type="button" role="tab" id="tab-btn-garment" aria-controls="tab-garment" aria-selected="false">옷 입히기</button>
     </div>
 
-    <div class="gender">
-      <span class="lbl">체형 기준</span>
-      <div class="seg" role="group" aria-label="체형 기준">
-        <button type="button" data-gender="female">여성</button>
-        <button type="button" data-gender="male">남성</button>
+    <section class="tab-pane" id="tab-body" role="tabpanel" aria-labelledby="tab-btn-body">
+      <div>
+        <h2>내 치수</h2>
+        <p class="save-state" id="save-state" aria-live="polite"></p>
       </div>
-    </div>
 
-    <dl class="stats">
-      <div><dt>BMI</dt><dd id="stat-bmi">–</dd></div>
-      <div><dt>허리/엉덩이</dt><dd id="stat-whr">–</dd></div>
-      <div><dt>다리/키</dt><dd id="stat-leg">–</dd></div>
-    </dl>
+      <div class="gender">
+        <span class="lbl">체형 기준</span>
+        <div class="seg" role="group" aria-label="체형 기준">
+          <button type="button" data-gender="female">여성</button>
+          <button type="button" data-gender="male">남성</button>
+        </div>
+      </div>
 
-    <div class="actions">
-      <button type="button" class="btn primary" id="btn-estimate">키·몸무게로 나머지 채우기</button>
-      <button type="button" class="btn" id="btn-reset">저장된 치수 삭제</button>
-    </div>
+      <dl class="stats">
+        <div><dt>BMI</dt><dd id="stat-bmi">–</dd></div>
+        <div><dt>허리/엉덩이</dt><dd id="stat-whr">–</dd></div>
+        <div><dt>다리/키</dt><dd id="stat-leg">–</dd></div>
+      </dl>
 
-    <ul class="cross" id="cross" hidden></ul>
+      <div class="actions">
+        <button type="button" class="btn primary" id="btn-estimate">키·몸무게로 나머지 채우기</button>
+        <button type="button" class="btn" id="btn-reset">저장된 치수 삭제</button>
+      </div>
 
-    <form id="measure-form" novalidate></form>
+      <ul class="cross" id="cross" hidden></ul>
 
-    <p class="foot-note">치수는 이 기기의 브라우저에만 저장되고 서버로 보내지지 않습니다. 줄자는 몸에 붙이되 조이지 않게 대고 재 주세요.</p>
+      <form id="measure-form" novalidate></form>
+
+      <p class="foot-note">치수는 이 기기의 브라우저에만 저장되고 서버로 보내지지 않습니다. 줄자는 몸에 붙이되 조이지 않게 대고 재 주세요.</p>
+    </section>
+
+    <section class="tab-pane" id="tab-garment" role="tabpanel" aria-labelledby="tab-btn-garment" hidden>
+      <div>
+        <h2>옷 입히기</h2>
+        <p class="save-state" id="garment-state" aria-live="polite"></p>
+      </div>
+
+      <div class="gender">
+        <span class="lbl">종류</span>
+        <div class="seg" role="group" aria-label="옷 종류">
+          <button type="button" data-category="top">상의</button>
+          <button type="button" data-category="bottom">하의</button>
+        </div>
+      </div>
+
+      <section class="verdict" id="verdict" aria-live="polite">
+        <p class="verdict-line" id="verdict-line"></p>
+        <p class="verdict-sub" id="verdict-sub"></p>
+        <ul class="fit-rows" id="fit-rows"></ul>
+      </section>
+
+      <fieldset class="group">
+        <legend>사진</legend>
+        <label class="drop" id="drop" for="photo-input">
+          <canvas id="photo-canvas" width="320" height="240" hidden></canvas>
+          <span class="drop-empty" id="drop-empty">옷 사진 1장을 고르거나 여기로 끌어 놓으세요<br><small>배경이 단순한 상품 사진일수록 색을 정확히 뽑아요</small></span>
+        </label>
+        <input type="file" id="photo-input" accept="image/*" class="visually-hidden">
+        <div class="photo-tools" id="photo-tools" hidden>
+          <div class="swatch-row">
+            <span class="swatch" id="swatch"></span>
+            <span class="lbl" id="swatch-label">대표색</span>
+            <div class="seg" role="group" aria-label="표현 방식">
+              <button type="button" data-mode="solid">단색</button>
+              <button type="button" data-mode="pattern">무늬</button>
+            </div>
+          </div>
+          <p class="hint" id="pattern-hint">사진에서 무늬로 쓸 곳을 누르세요. 점선 상자 안이 반복됩니다.</p>
+          <div class="field" id="pattern-fields">
+            <label for="crop-size">무늬 영역</label>
+            <input id="crop-size" class="slider" type="range" min="0.08" max="0.8" step="0.01" style="grid-column:2">
+            <label for="tile-cm">무늬 한 칸 크기</label>
+            <div class="input-wrap"><input id="tile-cm" type="number" inputmode="decimal" min="2" max="80" step="1"><span class="unit">cm</span></div>
+          </div>
+          <button type="button" class="btn" id="btn-photo-remove">사진 지우기</button>
+        </div>
+      </fieldset>
+
+      <form id="garment-form" novalidate></form>
+
+      <fieldset class="group">
+        <legend>소재</legend>
+        <div class="gender">
+          <span class="lbl">신축성</span>
+          <div class="seg" role="group" aria-label="신축성">
+            <button type="button" data-stretch="none">없음</button>
+            <button type="button" data-stretch="some">약간</button>
+            <button type="button" data-stretch="high">좋음</button>
+          </div>
+        </div>
+      </fieldset>
+
+      <div class="actions">
+        <button type="button" class="btn" id="btn-garment-sample">예시 값 넣기</button>
+      </div>
+      <p class="foot-note">실측은 쇼핑몰 사이즈표의 cm 값을 그대로 넣으세요. 단면 값은 자동으로 2배 해서 둘레로 비교합니다. 판정은 몸 치수 기준 계산이라 원단 두께나 핏 디자인에 따라 실제와 다를 수 있어요.</p>
+    </section>
   </aside>
 </div>
 <div class="toast" id="toast" role="status" hidden></div>

@@ -1,5 +1,6 @@
 import { FIELDS, GROUPS, estimate, defaultProfile, loadProfile, saveProfile, clearProfile, checkValue, clampValues, crossChecks } from './measurements.js';
 import { Viewer } from './viewer.js';
+import { initGarmentPanel } from './garmentPanel.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -73,6 +74,7 @@ function rebuild() {
   cancelAnimationFrame(frameReq);
   frameReq = requestAnimationFrame(() => {
     viewer.setBody(clampValues(profile.values), profile.gender);
+    garmentPanel.refresh();
     stats();
   });
 }
@@ -197,3 +199,40 @@ validate();
 renderSaveState();
 viewer.setBody(clampValues(profile.values), profile.gender);
 stats();
+
+// ── 2단계: 옷 입히기 ──
+const garmentPanel = initGarmentPanel(viewer);
+
+function selectTab(id) {
+  for (const t of document.querySelectorAll('[role="tab"]')) {
+    const on = t.id === `tab-btn-${id}`;
+    t.setAttribute('aria-selected', String(on));
+    $(`#${t.getAttribute('aria-controls')}`).hidden = !on;
+  }
+  try { localStorage.setItem('fitroom.tab', id); } catch { /* 무시 */ }
+}
+for (const t of document.querySelectorAll('[role="tab"]')) t.addEventListener('click', () => selectTab(t.id.replace('tab-btn-', '')));
+{
+  let saved = null;
+  try { saved = localStorage.getItem('fitroom.tab'); } catch { /* 무시 */ }
+  selectTab(saved === 'body' ? 'body' : 'garment');
+}
+
+function setPressed(btn, on) { btn.setAttribute('aria-pressed', String(on)); }
+$('#btn-cloth').addEventListener('click', (e) => {
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  setPressed(e.currentTarget, on);
+  if (viewer.garment) viewer.garment.visible = on;
+  viewer.garmentHidden = !on;
+});
+$('#btn-fitmap').addEventListener('click', (e) => {
+  const on = e.currentTarget.getAttribute('aria-pressed') !== 'true';
+  setPressed(e.currentTarget, on);
+  viewer.setFitMap(on);
+  $('#legend').hidden = !on;
+  if (on && viewer.garmentHidden) $('#btn-cloth').click();
+});
+// 옷을 입힌 상태에서는 치수선이 옷에 가려 헷갈리므로 처음엔 끈다
+setPressed($('#btn-guides'), false);
+viewer.setGuides(false);
+
