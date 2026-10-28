@@ -1,0 +1,9 @@
+{
+  "name": "핏룸 3D",
+  "short_name": "핏룸",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#eef0f3",
+  "theme_color": "#eef0f3",
+  "lang": "ko"
+}

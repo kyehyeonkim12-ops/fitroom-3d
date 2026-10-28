@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>핏룸 3D</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="theme-color" content="#eef0f3">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap">
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+<style>
+/* 레이아웃: 왼쪽(모바일은 위) 3D 무대, 오른쪽(모바일은 아래) 재단사 치수표 패널 */
+:root {
+  --bg: #eef0f3;
+  --surface: #fbfcfd;
+  --ink: #1a1f26;
+  --muted: #5b6672;
+  --line: #d4d9e0;
+  --accent: #d39a12;        /* 줄자 노랑 */
+  --accent-ink: #231a02;
+  --chalk: #2c67a8;         /* 재단 초크 파랑 */
+  --warn: #b0432c;
+  --mannequin: #cdbdae;
+  --floor: #dde2e8;
+  --font-display: "Do Hyeon", "IBM Plex Sans KR", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #13161a; --surface: #1b1f24; --ink: #e7eaee; --muted: #97a1ac; --line: #2c3239;
+    --accent: #e8b23a; --accent-ink: #1e1602; --chalk: #7eb0ea; --warn: #ee7d64;
+    --mannequin: #b6a796; --floor: #20252b; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #13161a; --surface: #1b1f24; --ink: #e7eaee; --muted: #97a1ac; --line: #2c3239;
+  --accent: #e8b23a; --accent-ink: #1e1602; --chalk: #7eb0ea; --warn: #ee7d64;
+  --mannequin: #b6a796; --floor: #20252b; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+.app { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr) 400px; grid-template-rows: auto minmax(0, 1fr); }
+
+.topbar {
+  grid-column: 1 / -1; display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding-block: 12px 10px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  border-bottom: 1px solid var(--line);
+}
+.brand { font: 26px/1 var(--font-display); letter-spacing: 0.01em; margin: 0; }
+.brand em { font-style: normal; color: var(--accent); }
+.steps { display: flex; gap: 6px; margin-left: auto; font-size: 12px; color: var(--muted); list-style: none; padding: 0; margin-block: 0; }
+.steps li { padding: 2px 8px; border: 1px solid var(--line); border-radius: 999px; }
+.steps li[aria-current="step"] { border-color: var(--accent); color: var(--ink); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+
+/* 3D 무대 */
+.stage-wrap { position: relative; min-height: 0; overflow: hidden; }
+#stage { position: absolute; inset: 0; }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#stage canvas:active { cursor: grabbing; }
+#labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+.g-label, .r-label { position: absolute; left: 0; top: 0; white-space: nowrap; will-change: transform; }
+.g-label {
+  display: flex; gap: 5px; align-items: baseline; padding: 1px 6px; border-radius: 4px;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid color-mix(in srgb, var(--chalk) 45%, transparent);
+  font-size: 11px; color: var(--muted);
+}
+.g-label b { font: 500 11px var(--font-mono); color: var(--chalk); }
+.r-label { font: 500 10px var(--font-mono); color: var(--muted); }
+.r-label.top { color: var(--ink); font-size: 11px; }
+
+.stage-tools {
+  position: absolute; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap;
+  padding: 12px max(12px, env(safe-area-inset-left, 0px)) 14px max(12px, env(safe-area-inset-right, 0px));
+  pointer-events: none;
+}
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); overflow: hidden; pointer-events: auto; }
+.seg button { border: 0; background: none; color: var(--ink); font: 500 13px var(--font-body); padding: 7px 12px; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); }
+.stage-hint { position: absolute; top: 10px; left: max(12px, env(safe-area-inset-left, 0px)); font-size: 12px; color: var(--muted); pointer-events: none; }
+
+/* 치수 패널 */
+.panel {
+  min-height: 0; overflow-y: auto; background: var(--surface); border-left: 1px solid var(--line);
+  padding-block: 16px 28px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: flex; flex-direction: column; gap: 16px;
+}
+.panel > * { flex-shrink: 0; }
+.panel h2 { font: 600 16px/1.3 var(--font-body); margin: 0; text-wrap: balance; }
+.save-state { margin: 4px 0 0; font-size: 12px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.save-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+.save-state[data-state="saved"]::before { background: #3a9a5b; }
+.save-state[data-state="sample"]::before { background: var(--accent); }
+.save-state[data-state="error"] { color: var(--warn); }
+.save-state[data-state="error"]::before { background: var(--warn); }
+
+.gender { display: flex; gap: 10px; align-items: center; }
+.gender .lbl { font-size: 13px; color: var(--muted); }
+
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.stats div { background: var(--surface); padding: 8px 10px; }
+.stats dt { font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+.stats dd { margin: 0; font: 500 16px var(--font-mono); font-variant-numeric: tabular-nums; }
+
+form { display: flex; flex-direction: column; gap: 18px; }
+.group { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.group legend {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.12em; color: var(--muted); padding: 0 0 6px; width: 100%;
+  border-bottom: 1px dashed var(--line); margin-bottom: 4px;
+}
+.field { display: grid; grid-template-columns: 1fr 124px; column-gap: 12px; row-gap: 2px; align-items: center; }
+.field label { font-weight: 500; }
+.input-wrap { position: relative; }
+.input-wrap input {
+  width: 100%; padding: 6px 34px 6px 10px; border: 1px solid var(--line); border-radius: 6px;
+  background: var(--bg); color: var(--ink); font: 500 15px var(--font-mono); font-variant-numeric: tabular-nums; text-align: right;
+}
+.input-wrap input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent; }
+.input-wrap input[aria-invalid] { border-color: var(--warn); }
+.unit { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 12px; color: var(--muted); pointer-events: none; }
+.slider { grid-column: 1 / -1; width: 100%; margin: 2px 0 0; accent-color: var(--accent); height: 18px; }
+.hint { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--muted); }
+.err { grid-column: 1 / -1; margin: 0; font-size: 12px; color: var(--warn); }
+.cross { margin: 0; padding: 10px 12px 10px 28px; border-radius: 8px; font-size: 12.5px; color: var(--warn); background: color-mix(in srgb, var(--warn) 9%, transparent); }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 8px; padding: 9px 14px; font: 500 13px var(--font-body); cursor: pointer; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.05); }
+.btn.armed { border-color: var(--warn); color: var(--warn); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.foot-note { font-size: 12px; color: var(--muted); margin: 0; }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  max-width: calc(100% - 32px); background: var(--ink); color: var(--surface); padding: 9px 14px; border-radius: 8px; font-size: 13px; z-index: 20;
+}
+
+@media (max-width: 860px) {
+  .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 50% minmax(0, 1fr); }
+  .panel { border-left: 0; border-top: 1px solid var(--line); }
+  .steps { display: none; }
+  .stage-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <h1 class="brand">핏룸 <em>3D</em></h1>
+    <ol class="steps" aria-label="진행 단계">
+      <li aria-current="step">1 내 몸 모델</li>
+      <li>2 옷 입히기</li>
+      <li>3 AI 착용·옷장</li>
+    </ol>
+  </header>
+
+  <main class="stage-wrap" aria-label="3D 인체 모델">
+    <div id="stage"></div>
+    <div id="labels"></div>
+    <p class="stage-hint">드래그로 회전 · 휠/핀치로 확대 · 두 손가락이나 우클릭으로 이동</p>
+    <div class="stage-tools">
+      <div class="seg" role="group" aria-label="보기 방향">
+        <button type="button" data-view="0">정면</button>
+        <button type="button" data-view="90">측면</button>
+        <button type="button" data-view="180">후면</button>
+      </div>
+      <div class="seg">
+        <button type="button" id="btn-guides" aria-pressed="true">치수선</button>
+      </div>
+    </div>
+  </main>
+
+  <aside class="panel" aria-label="내 치수">
+    <div>
+      <h2>내 치수</h2>
+      <p class="save-state" id="save-state" aria-live="polite"></p>
+    </div>
+
+    <div class="gender">
+      <span class="lbl">체형 기준</span>
+      <div class="seg" role="group" aria-label="체형 기준">
+        <button type="button" data-gender="female">여성</button>
+        <button type="button" data-gender="male">남성</button>
+      </div>
+    </div>
+
+    <dl class="stats">
+      <div><dt>BMI</dt><dd id="stat-bmi">–</dd></div>
+      <div><dt>허리/엉덩이</dt><dd id="stat-whr">–</dd></div>
+      <div><dt>다리/키</dt><dd id="stat-leg">–</dd></div>
+    </dl>
+
+    <div class="actions">
+      <button type="button" class="btn primary" id="btn-estimate">키·몸무게로 나머지 채우기</button>
+      <button type="button" class="btn" id="btn-reset">저장된 치수 삭제</button>
+    </div>
+
+    <ul class="cross" id="cross" hidden></ul>
+
+    <form id="measure-form" novalidate></form>
+
+    <p class="foot-note">치수는 이 기기의 브라우저에만 저장되고 서버로 보내지지 않습니다. 줄자는 몸에 붙이되 조이지 않게 대고 재 주세요.</p>
+  </aside>
+</div>
+<div class="toast" id="toast" role="status" hidden></div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
