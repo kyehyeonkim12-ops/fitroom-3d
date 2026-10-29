@@ -1,7 +1,7 @@
 // 옷 실측과 몸 단면을 비교해 핏을 판정하고, 3D 옷 메시를 만든다.
 // 쇼핑몰 실측의 "단면"은 옷을 펼쳐 놓고 잰 가로 길이이므로 둘레 = 단면 × 2.
 import * as THREE from 'three';
-import { RING_N, perimeter, catmull } from './bodyModel.js';
+import { RING_N, perimeter, torsoAt } from './bodyModel.js';
 import { classify, effective, STRETCH, STATUS, f, nearestLandmark, easeColor, summarize } from './fit.js';
 
 const TAU = Math.PI * 2;
@@ -48,28 +48,6 @@ export function checkGarment(category, values) {
 }
 
 // ── 몸 단면 샘플링 ──
-
-// 몸통 로프트와 같은 보간으로 높이 y의 단면을 구한다 (옷이 몸을 뚫지 않도록)
-export function torsoAt(rings, y) {
-  const R = rings.length;
-  const g = (k) => rings[clamp(k, 0, R - 1)];
-  if (y <= rings[0].y) return { y, zc: rings[0].z, pts: rings[0].pts };
-  if (y >= rings[R - 1].y) return { y, zc: rings[R - 1].z, pts: rings[R - 1].pts };
-  let i = 0;
-  while (i < R - 2 && rings[i + 1].y < y) i++;
-  const r0 = g(i - 1), r1 = g(i), r2 = g(i + 1), r3 = g(i + 2);
-  let lo = 0, hi = 1;
-  for (let k = 0; k < 28; k++) {
-    const mid = (lo + hi) / 2;
-    if (catmull(r0.y, r1.y, r2.y, r3.y, mid) < y) lo = mid; else hi = mid;
-  }
-  const t = (lo + hi) / 2;
-  const pts = r1.pts.map((_, j) => [
-    catmull(r0.pts[j][0], r1.pts[j][0], r2.pts[j][0], r3.pts[j][0], t),
-    catmull(r0.pts[j][1], r1.pts[j][1], r2.pts[j][1], r3.pts[j][1], t),
-  ]);
-  return { y, zc: catmull(r0.z, r1.z, r2.z, r3.z, t), pts };
-}
 
 // 오른쪽(+x) 다리의 높이 y 단면 (중심, 반지름)
 function legAt(P, y) {

@@ -1,8 +1,9 @@
 // 치수로부터 3D 인체(마네킹) 메시를 만든다.
 // 단위: cm. 바닥 y=0, 정면 +z, 몸 중심 x=0.
-// 몸통은 단면 링을 쌓아 이은 로프트, 팔다리는 단면이 변하는 튜브로 만든다.
+// 몸통은 측정 단면 링, 팔다리는 굵기가 변하는 마디로 정의하고, sdfBody.js가 이를 이음새 없는 한 덩어리 표면으로 만든다.
 // 2단계에서 옷을 같은 링 구조 위에 여유분만큼 부풀려 입히기 위해 단면 정보(`profile`)도 함께 반환한다.
 import * as THREE from 'three';
+import { Cone, Ellipsoid, Group, TorsoField, bodyField, meshField, splineTube } from './sdfBody.js';
 
 const TAU = Math.PI * 2;
 export const RING_N = 64;
@@ -47,111 +48,26 @@ const scalePts = (pts, kx, kz = kx) => pts.map(([x, z]) => [x * kx, z * kz]);
 const toCirc = (pts, circ) => scalePts(pts, circ / perimeter(pts));
 const widthOf = (pts) => Math.max(...pts.map((p) => p[0])) * 2;
 
-// rings: [{ y, z: 중심 z 오프셋, pts }] 아래에서 위 순서
-function loftGeometry(rings, steps = 5) {
+// 몸통 로프트와 같은 보간으로 높이 y의 단면을 구한다 (옷이 몸을 뚫지 않도록)
+export function torsoAt(rings, y) {
   const R = rings.length;
-  const pos = [];
-  const get = (i) => rings[clamp(i, 0, R - 1)];
-  let rows = 0;
-  for (let i = 0; i < R - 1; i++) {
-    const last = i === R - 2;
-    for (let k = 0; k < steps + (last ? 1 : 0); k++) {
-      const t = k / steps;
-      const r0 = get(i - 1), r1 = get(i), r2 = get(i + 1), r3 = get(i + 2);
-      const y = catmull(r0.y, r1.y, r2.y, r3.y, t);
-      const zc = catmull(r0.z, r1.z, r2.z, r3.z, t);
-      for (let j = 0; j < RING_N; j++) {
-        const x = catmull(r0.pts[j][0], r1.pts[j][0], r2.pts[j][0], r3.pts[j][0], t);
-        const z = catmull(r0.pts[j][1], r1.pts[j][1], r2.pts[j][1], r3.pts[j][1], t);
-        pos.push(x, y, z + zc);
-      }
-      rows++;
-    }
+  const g = (k) => rings[clamp(k, 0, R - 1)];
+  if (y <= rings[0].y) return { y, zc: rings[0].z, pts: rings[0].pts };
+  if (y >= rings[R - 1].y) return { y, zc: rings[R - 1].z, pts: rings[R - 1].pts };
+  let i = 0;
+  while (i < R - 2 && rings[i + 1].y < y) i++;
+  const r0 = g(i - 1), r1 = g(i), r2 = g(i + 1), r3 = g(i + 2);
+  let lo = 0, hi = 1;
+  for (let k = 0; k < 28; k++) {
+    const mid = (lo + hi) / 2;
+    if (catmull(r0.y, r1.y, r2.y, r3.y, mid) < y) lo = mid; else hi = mid;
   }
-  return gridToGeometry(pos, rows, true, true);
-}
-
-// pos: rows×RING_N 꼭짓점. 행 순서대로 링을 잇고 양 끝을 막는다.
-function gridToGeometry(pos, rows, capStart, capEnd) {
-  const idx = [];
-  const N = RING_N;
-  for (let i = 0; i < rows - 1; i++) {
-    for (let j = 0; j < N; j++) {
-      const a = i * N + j, b = (i + 1) * N + j;
-      const c = i * N + ((j + 1) % N), d = (i + 1) * N + ((j + 1) % N);
-      idx.push(a, b, c, c, b, d);
-    }
-  }
-  const cap = (row, start) => {
-    let cx = 0, cy = 0, cz = 0;
-    for (let j = 0; j < N; j++) { const o = (row * N + j) * 3; cx += pos[o]; cy += pos[o + 1]; cz += pos[o + 2]; }
-    const ci = pos.length / 3;
-    pos.push(cx / N, cy / N, cz / N);
-    for (let j = 0; j < N; j++) {
-      const v0 = row * N + j, v1 = row * N + ((j + 1) % N);
-      if (start) idx.push(ci, v0, v1); else idx.push(ci, v1, v0);
-    }
-  };
-  if (capStart) cap(0, true);
-  if (capEnd) cap(rows - 1, false);
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  g.setIndex(idx);
-  g.computeVertexNormals();
-  return g;
-}
-
-// nodes: [{ p: Vector3, rx, rz }] 시작→끝. 단면은 타원.
-function tubeGeometry(nodes, spacing = 1.2) {
-  const n = nodes.length;
-  const get = (i) => nodes[clamp(i, 0, n - 1)];
-  const centers = [], radii = [];
-  for (let i = 0; i < n - 1; i++) {
-    const segLen = nodes[i].p.distanceTo(nodes[i + 1].p);
-    const steps = Math.max(2, Math.ceil(segLen / spacing));
-    const last = i === n - 2;
-    for (let k = 0; k < steps + (last ? 1 : 0); k++) {
-      const t = k / steps;
-      const a = get(i - 1), b = get(i), c = get(i + 1), d = get(i + 2);
-      centers.push(new THREE.Vector3(
-        catmull(a.p.x, b.p.x, c.p.x, d.p.x, t),
-        catmull(a.p.y, b.p.y, c.p.y, d.p.y, t),
-        catmull(a.p.z, b.p.z, c.p.z, d.p.z, t),
-      ));
-      radii.push([Math.max(0.05, catmull(a.rx, b.rx, c.rx, d.rx, t)), Math.max(0.05, catmull(a.rz, b.rz, c.rz, d.rz, t))]);
-    }
-  }
-  const pos = [];
-  const up = new THREE.Vector3(0, 1, 0), fwd = new THREE.Vector3(0, 0, 1);
-  const tan = new THREE.Vector3(), xA = new THREE.Vector3(), zA = new THREE.Vector3();
-  for (let i = 0; i < centers.length; i++) {
-    const p0 = centers[Math.max(0, i - 1)], p1 = centers[Math.min(centers.length - 1, i + 1)];
-    tan.subVectors(p1, p0).normalize();
-    const ref = Math.abs(tan.dot(fwd)) > 0.9 ? up : fwd;
-    xA.crossVectors(tan, ref).normalize();
-    zA.crossVectors(xA, tan).normalize();
-    const [rx, rz] = radii[i];
-    for (let j = 0; j < RING_N; j++) {
-      const a = (j / RING_N) * TAU;
-      const cx = Math.cos(a) * rx, cz = Math.sin(a) * rz;
-      pos.push(
-        centers[i].x + xA.x * cx + zA.x * cz,
-        centers[i].y + xA.y * cx + zA.y * cz,
-        centers[i].z + xA.z * cx + zA.z * cz,
-      );
-    }
-  }
-  return { geometry: gridToGeometry(pos, centers.length, true, true), centers, radii };
-}
-
-function headGeometry(headH, headW, headD) {
-  // 턱(0)에서 정수리(1)까지 반지름 윤곽
-  const prof = [[0, 0], [0.42, 0.02], [0.66, 0.12], [0.86, 0.3], [0.97, 0.5], [1, 0.62], [0.95, 0.76], [0.8, 0.88], [0.52, 0.97], [0, 1]];
-  const pts = prof.map(([r, y]) => new THREE.Vector2(r * headW / 2, y * headH));
-  const g = new THREE.LatheGeometry(pts, RING_N);
-  g.scale(1, 1, headD / headW);
-  g.computeVertexNormals();
-  return g;
+  const t = (lo + hi) / 2;
+  const pts = r1.pts.map((_, j) => [
+    catmull(r0.pts[j][0], r1.pts[j][0], r2.pts[j][0], r3.pts[j][0], t),
+    catmull(r0.pts[j][1], r1.pts[j][1], r2.pts[j][1], r3.pts[j][1], t),
+  ]);
+  return { y, zc: catmull(r0.z, r1.z, r2.z, r3.z, t), pts };
 }
 
 function ringPoints3D(pts, y, zc, grow = 1.012) {
@@ -167,7 +83,7 @@ function circlePoints3D(center, r) {
   return out;
 }
 
-export function buildBody(values, gender, material) {
+export function buildBody(values, gender, material, { quality = 'final' } = {}) {
   const v = values;
   const H = v.height;
   const fem = gender === 'female';
@@ -202,15 +118,16 @@ export function buildBody(values, gender, material) {
   const armpitPts = toCirc(ringShape({ w: 1, df: 0.3, db: 0.33, n: 2.6, bust: bust * 0.5 }), v.chest * 0.97);
   // 어깨 단면은 너비를 직접 맞춘다 (팔 연결부가 나머지를 채움)
   const shW = v.shoulder;
-  const shoulderPts = ringShape({ w: shW * 0.86, df: chestD * 0.36, db: chestD * 0.38, n: 3.2 });
+  const shoulderPts = ringShape({ w: shW * 0.8, df: chestD * 0.36, db: chestD * 0.4, n: 2.6 });
   const neckR = v.neck / TAU;
   const trapPts = ringShape({ w: Math.max(shW * 0.55, neckR * 3), df: neckR * 1.25, db: neckR * 1.45, n: 2.6 });
   const neckBasePts = toCirc(ringShape({ w: 1, df: 0.42, db: 0.42, n: 2 }), v.neck * 1.12);
 
   const torsoRings = [
     { y: yCrotch + H * 0.004, z: -1.0 * s, pts: bottomPts },
-    { y: yCrotch + H * 0.02, z: -0.8 * s, pts: crotchPts },
-    { y: lerp(yCrotch, yHip, 0.55), z: -0.6 * s, pts: lowHipPts },
+    // 가랑이~엉덩이 간격이 좁은 체형에서도 단면끼리 겹치지 않게 비율로 둔다
+    { y: yCrotch + Math.min(H * 0.02, (yHip - yCrotch) * 0.3), z: -0.8 * s, pts: crotchPts },
+    { y: lerp(yCrotch, yHip, 0.62), z: -0.6 * s, pts: lowHipPts },
     { y: yHip, z: -0.5 * s, pts: hipPts },
     { y: lerp(yHip, yWaist, 0.5), z: 0, pts: abdomenPts },
     { y: yWaist, z: 0, pts: waistPts },
@@ -222,29 +139,7 @@ export function buildBody(values, gender, material) {
     { y: yNeckBase, z: -0.6 * s, pts: neckBasePts },
   ];
 
-  const group = new THREE.Group();
-  group.name = 'body';
-  const add = (geo, name) => {
-    const m = new THREE.Mesh(geo, material);
-    m.name = name;
-    m.castShadow = true;
-    m.receiveShadow = true;
-    group.add(m);
-    return m;
-  };
-
-  add(loftGeometry(torsoRings, 6), 'torso');
-
-  // ── 목, 머리 ──
-  const neck = tubeGeometry([
-    { p: new THREE.Vector3(0, yNeckBase - H * 0.03, -0.8 * s), rx: neckR * 1.1, rz: neckR * 1.05 },
-    { p: new THREE.Vector3(0, yNeckBase, -0.6 * s), rx: neckR, rz: neckR },
-    { p: new THREE.Vector3(0, yChin + 1.5 * s, 0.2 * s), rx: neckR * 0.96, rz: neckR * 0.98 },
-  ]);
-  add(neck.geometry, 'neck');
-  const headH = H - yChin + 0.6 * s;
-  const head = add(headGeometry(headH, 15.4 * s, 19.2 * s), 'head');
-  head.position.set(0, yChin - 0.6 * s, 0.9 * s);
+  const headH = H - yChin;
 
   // ── 다리 ──
   const thighR = v.thigh / TAU;
@@ -269,22 +164,8 @@ export function buildBody(values, gender, material) {
       { p: new THREE.Vector3(x(1), yAnkle + 1.5 * s, -0.8 * s), rx: ankleR, rz: ankleR * 1.05 },
       { p: new THREE.Vector3(x(1), yAnkle - 2.5 * s, -0.8 * s), rx: ankleR * 0.95, rz: ankleR * 1.15 },
     ];
-    const leg = tubeGeometry(nodes);
-    add(leg.geometry, side > 0 ? 'legL' : 'legR');
     legs.push({ side, nodes });
 
-    // 발: 뒤꿈치→발끝 방향 튜브
-    const fl = 25.5 * s, fw = 9.8 * s;
-    const fx = x(1);
-    const foot = tubeGeometry([
-      { p: new THREE.Vector3(fx, 4.2 * s, -0.22 * fl), rx: fw * 0.26, rz: 3.0 * s },
-      { p: new THREE.Vector3(fx, 4.6 * s, -0.12 * fl), rx: fw * 0.34, rz: 4.1 * s },
-      { p: new THREE.Vector3(fx + side * 0.3 * s, 3.8 * s, 0.22 * fl), rx: fw * 0.42, rz: 3.3 * s },
-      { p: new THREE.Vector3(fx + side * 0.6 * s, 2.5 * s, 0.52 * fl), rx: fw * 0.5, rz: 2.2 * s },
-      { p: new THREE.Vector3(fx + side * 0.6 * s, 1.6 * s, 0.72 * fl), rx: fw * 0.44, rz: 1.4 * s },
-      { p: new THREE.Vector3(fx + side * 0.5 * s, 1.5 * s, 0.77 * fl), rx: fw * 0.2, rz: 0.8 * s },
-    ], 1.0);
-    add(foot.geometry, side > 0 ? 'footL' : 'footR');
   }
 
   // ── 팔 (살짝 벌린 A자 자세) ──
@@ -315,8 +196,7 @@ export function buildBody(values, gender, material) {
       { p: wrist.clone().addScaledVector(fdir, handLen * 0.88), rx: handT / 2 * 0.7, rz: handW / 2 * 0.7 },
       { p: wrist.clone().addScaledVector(fdir, handLen), rx: handT / 2 * 0.3, rz: handW / 2 * 0.3 },
     ];
-    add(tubeGeometry(nodes).geometry, side > 0 ? 'armL' : 'armR');
-    arms.push({ side, start, wrist, nodes });
+    arms.push({ side, start, wrist, nodes, dir, fdir });
   }
 
   // ── 치수선(가이드) ──
@@ -345,7 +225,85 @@ export function buildBody(values, gender, material) {
     torsoRings, legs, arms, hipW, chestW, shoulderW: shW, values: v, uaR,
   };
 
+  // ── 이음새 없는 표면 ──
+  const group = new THREE.Group();
+  group.name = 'body';
+  const field = buildField({ v, fem, s, H, torsoRings, chestPts, underbust, yChest, yCrotch, yChin, yNeckBase, yAnkle, yKnee, neckR, headH, legs, arms, uaR, calfR, kneeR, handLen, handW, handT });
+  const mesh = new THREE.Mesh(meshField(field.f, field.box, quality === 'draft' ? 1.5 : 0.75), material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = false;
+  group.add(mesh);
+
   return { group, guides, profile };
+}
+
+const V = (x, y, z) => new THREE.Vector3(x, y, z);
+const avgR = (n) => (n.rx + n.rz) / 2;
+
+function buildField(o) {
+  const { v, fem, s, torsoRings, yChest, yCrotch, yChin, yNeckBase, neckR, headH, legs, arms, uaR, calfR, kneeR, handLen, handW, handT } = o;
+
+  // 몸통: 여성은 가슴을 둥근 볼륨으로 따로 얹기 위해 단면의 가슴 돌출을 줄인다
+  let rings = torsoRings;
+  const extras = [];
+  if (fem) {
+    const h = clamp((v.chest - o.underbust) * 0.32, 1.2, 6.5);   // 가슴이 앞으로 나온 정도
+    const rb = clamp(v.chest * 0.07, 4.5, 8.5);
+    const ci = torsoRings.findIndex((r) => r.y === yChest);
+    const base = toCirc(ringShape({ w: 1, df: 0.3, db: 0.34, n: 2.3, bust: 0.02 }), v.chest - h * 2.1);
+    rings = torsoRings.map((r, i) => (i === ci ? { ...r, pts: base } : r));
+    const w = widthOf(base);
+    const xb = w * 0.2;
+    const front = base.filter((p) => p[1] > 0).reduce((a, p) => (Math.abs(p[0] - xb) < Math.abs(a[0] - xb) ? p : a));
+    const zc = torsoRings[ci].z;
+    const prims = [1, -1].map((sd) => new Ellipsoid(V(sd * xb * 1.05, yChest + 0.6 * s, zc + front[1] + h - rb * 0.92), [rb * 1.02, rb * 0.95, rb * 0.92]));
+    extras.push({ group: new Group(prims, 0), k: 3.2 });
+  }
+  // 맨 아래 작은 링은 거의 수평면이라 거리 근사가 깨지므로 빼고, 둥근 바닥 처리와 다리 녹임으로 닫는다
+  // 몸통 아랫단을 허벅지 속까지 내려 이음선이 다리 안에 숨게 한다
+  const r1 = rings[1];
+  const sdfRings = [{ y: yCrotch - 0.02 * v.height, z: r1.z, pts: scalePts(r1.pts, 0.95, 0.72) }, ...rings.slice(1)];
+  const torso = new TorsoField((y) => torsoAt(sdfRings, y), sdfRings[0].y, sdfRings[sdfRings.length - 1].y);
+
+  // 목과 머리: 뒤통수가 둥근 달걀형 머리
+  const neckHead = new Group([
+    new Cone(V(0, yNeckBase - 4 * s, -1.2 * s), V(0, yChin + headH * 0.28, -0.6 * s), neckR * 1.06, neckR * 0.9),
+    new Ellipsoid(V(0, yChin + headH * 0.58, -0.4 * s), [headH * 0.34, headH * 0.41, headH * 0.43]),
+    new Ellipsoid(V(0, yChin + headH * 0.34, headH * 0.08), [headH * 0.25, headH * 0.34, headH * 0.3]),
+  ], 2.6);
+
+  // 팔: 어깨 삼각근 + 마디 캡슐 + 손가락을 모은 손
+  const armGroups = arms.map(({ side, nodes, wrist, fdir, dir }) => {
+    const prims = [splineTube(nodes.slice(0, 7).map((n) => ({ p: n.p, r: avgR(n) })))];
+    prims.push(new Ellipsoid(nodes[1].p.clone().addScaledVector(dir, -uaR * 0.1).add(V(side * uaR * 0.05, 0, 0)), [uaR * 1.05, uaR * 1.4, uaR * 1.1]));
+    const flat = [handT / handW * 1.3, 1, 1];
+    const at = (t) => wrist.clone().addScaledVector(fdir, handLen * t);
+    prims.push(new Cone(at(0.06), at(0.5), handW * 0.4, handW * 0.46, flat));
+    prims.push(new Cone(at(0.5), at(0.94), handW * 0.44, handW * 0.18, [flat[0] * 0.9, 1, 1]));
+    prims.push(new Cone(at(0.12).add(V(-side * 0.3 * s, 0, 2.0 * s)), at(0.42).add(V(-side * 0.2 * s, 0, 3.4 * s)), 1.15 * s, 0.85 * s));
+    return new Group(prims, 1.6);
+  });
+
+  // 다리: 마디 캡슐 + 종아리 근육 + 무릎뼈 + 발
+  const legGroups = legs.map(({ side, nodes }) => {
+    const prims = [splineTube(nodes.map((n, i) => ({ p: n.p, r: avgR(n) * (i === 5 ? 0.9 : 1) })))];
+    const calfLen = nodes[4].p.y - nodes[7].p.y;
+    prims.push(new Ellipsoid(nodes[5].p.clone().add(V(-side * calfR * 0.08, calfLen * 0.05, -calfR * 0.28)), [calfR * 0.78, calfLen * 0.26, calfR * 0.66]));
+    prims.push(new Ellipsoid(nodes[4].p.clone().add(V(0, kneeR * 0.1, kneeR * 0.5)), [kneeR * 0.45, kneeR * 0.5, kneeR * 0.34]));
+    const fl = 0.152 * v.height;
+    const a = nodes[8].p;
+    const fx = a.x, az = a.z;
+    prims.push(new Ellipsoid(V(fx, 3.3 * s, az - 0.12 * fl), [2.9 * s, 3.3 * s, 3.6 * s]));
+    prims.push(new Cone(V(fx, 4.4 * s, az - 0.06 * fl), V(fx + side * 0.4 * s, 2.9 * s, az + 0.47 * fl), 3.4 * s, 3.0 * s, [1.4, 0.82, 1]));
+    prims.push(new Cone(V(fx + side * 0.4 * s, 2.9 * s, az + 0.47 * fl), V(fx + side * 0.7 * s, 1.5 * s, az + 0.78 * fl), 3.0 * s, 1.1 * s, [1.4, 0.8, 1]));
+    return new Group(prims, 2.0);
+  });
+
+  const all = [torso, neckHead, ...armGroups, ...legGroups, ...extras.map((e) => e.group)];
+  const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+  for (const p of all) for (let i = 0; i < 3; i++) { box[i] = Math.min(box[i], p.box[i] - 2); box[i + 3] = Math.max(box[i + 3], p.box[i + 3] + 2); }
+  box[1] = Math.max(box[1], -1);
+  return { f: bodyField({ torso, neckHead, arms: armGroups, legs: legGroups, extras, yChest, yCrotch }), box };
 }
 
 export function disposeGroup(group) {

@@ -69,13 +69,16 @@ function stats() {
   $('#stat-leg').textContent = `${Math.round((v.leg / v.height) * 100)}%`;
 }
 
-let frameReq = 0;
+// 값을 바꾸는 동안에는 거친 메시로 빠르게, 멈추면 고운 메시로 다시 만든다
+let frameReq = 0, fineTimer = 0;
 function rebuild() {
   cancelAnimationFrame(frameReq);
+  clearTimeout(fineTimer);
   frameReq = requestAnimationFrame(() => {
-    viewer.setBody(clampValues(profile.values), profile.gender);
+    viewer.setBody(clampValues(profile.values), profile.gender, 'draft');
     garmentPanel.refresh();
     stats();
+    fineTimer = setTimeout(() => viewer.setBody(clampValues(profile.values), profile.gender, 'final'), 350);
   });
 }
 

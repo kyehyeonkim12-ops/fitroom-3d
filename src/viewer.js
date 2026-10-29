@@ -1,6 +1,7 @@
 // Three.js 장면: 카메라, 조명, 바닥, 줄자, 치수선 라벨, 터치/마우스 조작.
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { buildBody, disposeGroup } from './bodyModel.js';
 
 const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -26,13 +27,18 @@ export class Viewer {
     this.scene = scene;
     this.camera = new THREE.PerspectiveCamera(30, 1, 1, 5000);
 
-    scene.add(new THREE.HemisphereLight(0xf4f1ff, 0x5a5048, 1.1));
-    const key = new THREE.DirectionalLight(0xffffff, 2.1);
+    // 스튜디오처럼 은은한 반사를 주는 환경광
+    const pmrem = new THREE.PMREMGenerator(renderer);
+    scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    scene.add(new THREE.HemisphereLight(0xf4f1ff, 0x5a5048, 0.35));
+    const key = new THREE.DirectionalLight(0xffffff, 1.6);
     key.position.set(120, 260, 200);
     key.castShadow = true;
     key.shadow.mapSize.set(1024, 1024);
     Object.assign(key.shadow.camera, { left: -120, right: 120, top: 240, bottom: -20, near: 10, far: 700 });
     key.shadow.radius = 4;
+    key.shadow.bias = -0.0004;
+    key.shadow.normalBias = 0.6;
     scene.add(key);
     const rim = new THREE.DirectionalLight(0xcfe0ff, 0.9);
     rim.position.set(-180, 160, -220);
@@ -48,9 +54,10 @@ export class Viewer {
     this.floorDisc.position.y = -0.05;
     scene.add(this.floorDisc);
 
-    this.bodyMaterial = new THREE.MeshStandardMaterial({ roughness: 0.62, metalness: 0.0 });
-    this.clothMaterial = new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, color: 0x3d4a63 });
-    this.fitMaterial = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide, vertexColors: true });
+    // 유광 화이트 마네킹
+    this.bodyMaterial = new THREE.MeshPhysicalMaterial({ roughness: 0.3, metalness: 0.0, clearcoat: 0.7, clearcoatRoughness: 0.18, envMapIntensity: 0.9 });
+    this.clothMaterial = new THREE.MeshStandardMaterial({ roughness: 0.88, metalness: 0.0, side: THREE.DoubleSide, color: 0x3d4a63, envMapIntensity: 0.45 });
+    this.fitMaterial = new THREE.MeshStandardMaterial({ roughness: 0.75, metalness: 0.0, side: THREE.DoubleSide, vertexColors: true, envMapIntensity: 0.45 });
     this.fitMap = false;
     this.garment = null;
     this.guideMaterial = new THREE.LineBasicMaterial({ depthTest: false, transparent: true, opacity: 0.95 });
@@ -82,7 +89,7 @@ export class Viewer {
   }
 
   applyTheme() {
-    this.bodyMaterial.color.set(css('--mannequin') || '#cbbcae');
+    this.bodyMaterial.color.set(css('--mannequin') || '#ecebe8');
     this.guideMaterial.color.set(css('--chalk') || '#2f6fb3');
     this.rulerMaterial.color.set(css('--accent') || '#d9a21b');
     this.floorDisc.material.color.set(css('--floor') || '#dfe3e8');
@@ -97,12 +104,12 @@ export class Viewer {
     if (this.height && !this.framed) this.frame();
   }
 
-  setBody(values, gender) {
+  setBody(values, gender, quality = 'final') {
     if (this.body) {
       this.scene.remove(this.body.group);
       disposeGroup(this.body.group);
     }
-    this.body = buildBody(values, gender, this.bodyMaterial);
+    this.body = buildBody(values, gender, this.bodyMaterial, { quality });
     this.scene.add(this.body.group);
     const firstTime = !this.height;
     const heightChanged = this.height && Math.abs(this.height - values.height) > 0.01;
